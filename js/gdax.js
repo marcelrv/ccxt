@@ -2,15 +2,20 @@
 
 // ----------------------------------------------------------------------------
 
-const Exchange = require ('./base/Exchange');
-const { ExchangeError, InvalidOrder, AuthenticationError, NotSupported } = require ('./base/errors');
+const Exchange = require('./base/Exchange')
+const {
+    ExchangeError,
+    InvalidOrder,
+    AuthenticationError,
+    NotSupported
+} = require('./base/errors')
 
 // ----------------------------------------------------------------------------
 
 module.exports = class gdax extends Exchange {
 
-    describe () {
-        return this.deepExtend (super.describe (), {
+    describe() {
+        return this.deepExtend(super.describe(), {
             'id': 'gdax',
             'name': 'GDAX',
             'countries': 'US',
@@ -144,8 +149,8 @@ module.exports = class gdax extends Exchange {
         });
     }
 
-    async fetchMarkets () {
-        let markets = await this.publicGetProducts ();
+    async fetchMarkets() {
+        let markets = await this.publicGetProducts();
         let result = [];
         for (let p = 0; p < markets.length; p++) {
             let market = markets[p];
@@ -171,15 +176,15 @@ module.exports = class gdax extends Exchange {
                 'cost': costLimits,
             };
             let precision = {
-                'amount': -Math.log10 (parseFloat (amountLimits['min'])),
-                'price': -Math.log10 (parseFloat (priceLimits['min'])),
+                'amount': -Math.log10(parseFloat(amountLimits['min'])),
+                'price': -Math.log10(parseFloat(priceLimits['min'])),
             };
             let taker = this.fees['trading']['taker'];
             if ((base == 'ETH') || (base == 'LTC')) {
                 taker = 0.003;
             }
             let active = market['status'] == 'online';
-            result.push (this.extend (this.fees['trading'], {
+            result.push(this.extend(this.fees['trading'], {
                 'id': id,
                 'symbol': symbol,
                 'base': base,
@@ -194,50 +199,52 @@ module.exports = class gdax extends Exchange {
         return result;
     }
 
-    async fetchBalance (params = {}) {
-        await this.loadMarkets ();
-        let balances = await this.privateGetAccounts ();
-        let result = { 'info': balances };
+    async fetchBalance(params = {}) {
+        await this.loadMarkets();
+        let balances = await this.privateGetAccounts();
+        let result = {
+            'info': balances
+        };
         for (let b = 0; b < balances.length; b++) {
             let balance = balances[b];
             let currency = balance['currency'];
             let account = {
-                'free': parseFloat (balance['available']),
-                'used': parseFloat (balance['hold']),
-                'total': parseFloat (balance['balance']),
+                'free': parseFloat(balance['available']),
+                'used': parseFloat(balance['hold']),
+                'total': parseFloat(balance['balance']),
             };
             result[currency] = account;
         }
-        return this.parseBalance (result);
+        return this.parseBalance(result);
     }
 
-    async fetchOrderBook (symbol, params = {}) {
-        await this.loadMarkets ();
-        let orderbook = await this.publicGetProductsIdBook (this.extend ({
-            'id': this.marketId (symbol),
+    async fetchOrderBook(symbol, params = {}) {
+        await this.loadMarkets();
+        let orderbook = await this.publicGetProductsIdBook(this.extend({
+            'id': this.marketId(symbol),
             'level': 2, // 1 best bidask, 2 aggregated, 3 full
         }, params));
-        return this.parseOrderBook (orderbook);
+        return this.parseOrderBook(orderbook);
     }
 
-    async fetchTicker (symbol, params = {}) {
-        await this.loadMarkets ();
-        let market = this.market (symbol);
-        let request = this.extend ({
+    async fetchTicker(symbol, params = {}) {
+        await this.loadMarkets();
+        let market = this.market(symbol);
+        let request = this.extend({
             'id': market['id'],
         }, params);
-        let ticker = await this.publicGetProductsIdTicker (request);
-        let timestamp = this.parse8601 (ticker['time']);
+        let ticker = await this.publicGetProductsIdTicker(request);
+        let timestamp = this.parse8601(ticker['time']);
         let bid = undefined;
         let ask = undefined;
         if ('bid' in ticker)
-            bid = parseFloat (ticker['bid']);
+            bid = parseFloat(ticker['bid']);
         if ('ask' in ticker)
-            ask = parseFloat (ticker['ask']);
+            ask = parseFloat(ticker['ask']);
         return {
             'symbol': symbol,
             'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
+            'datetime': this.iso8601(timestamp),
             'high': undefined,
             'low': undefined,
             'bid': bid,
@@ -246,53 +253,79 @@ module.exports = class gdax extends Exchange {
             'open': undefined,
             'close': undefined,
             'first': undefined,
-            'last': this.safeFloat (ticker, 'price'),
+            'last': this.safeFloat(ticker, 'price'),
             'change': undefined,
             'percentage': undefined,
             'average': undefined,
-            'baseVolume': parseFloat (ticker['volume']),
+            'baseVolume': parseFloat(ticker['volume']),
             'quoteVolume': undefined,
             'info': ticker,
         };
     }
 
-    parseTrade (trade, market = undefined) {
-        let timestamp = this.parse8601 (trade['time']);
+    parseTrade(trade, market = undefined) {
+        let timestamp = undefined
+        if (trade['time']) {
+            timestamp = this.parse8601(trade['time']);
+        } else {
+            timestamp = this.parse8601(trade['created_at']);
+        }
         let side = (trade['side'] == 'buy') ? 'sell' : 'buy';
         let symbol = undefined;
-        if (market)
+        if ("product_id" in trade) {
+            symbol = trade['product_id']
+        } else if (market)
             symbol = market['symbol'];
         let fee = undefined;
         if ('fill_fees' in trade) {
             fee = {
-                'cost': parseFloat (trade['fill_fees']),
+                'cost': parseFloat(trade['fill_fees']),
                 'currency': market['quote'],
             };
         }
+        let type = undefined;
+        if ('liquidity' in trade) {
+            type = (trade['liquidity'] == 'T') ? 'Taker' : 'Maker';
+        }
         return {
-            'id': trade['trade_id'].toString (),
+            'id': trade['trade_id'].toString(),
+            'order': trade['order_id'].toString(),
             'info': trade,
             'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
+            'datetime': this.iso8601(timestamp),
             'symbol': symbol,
-            'type': undefined,
+            'type': type,
             'side': side,
-            'price': parseFloat (trade['price']),
-            'amount': parseFloat (trade['size']),
+            'price': parseFloat(trade['price']),
+            'amount': parseFloat(trade['size']),
             'fee': fee,
         };
     }
 
-    async fetchTrades (symbol, since = undefined, limit = undefined, params = {}) {
-        await this.loadMarkets ();
-        let market = this.market (symbol);
-        let response = await this.publicGetProductsIdTrades (this.extend ({
-            'id': market['id'], // fixes issue #2
-        }, params));
-        return this.parseTrades (response, market, since, limit);
+    async fetchMyTrades(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets();
+        let market = undefined;
+        let request = {}
+        if (symbol) {
+            market = this.market(symbol);
+            request['product_id'] = this.marketId(symbol)
+        }
+        if (limit)
+            request['limit'] = limit;
+        let response = await this.privateGetFills(this.extend(request, params));
+        return this.parseTrades(response, market, since, limit);
     }
 
-    parseOHLCV (ohlcv, market = undefined, timeframe = '1m', since = undefined, limit = undefined) {
+    async fetchTrades(symbol, since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets();
+        let market = this.market(symbol);
+        let response = await this.publicGetProductsIdTrades(this.extend({
+            'id': market['id'], // fixes issue #2
+        }, params));
+        return this.parseTrades(response, market, since, limit);
+    }
+
+    parseOHLCV(ohlcv, market = undefined, timeframe = '1m', since = undefined, limit = undefined) {
         return [
             ohlcv[0] * 1000,
             ohlcv[3],
@@ -303,30 +336,30 @@ module.exports = class gdax extends Exchange {
         ];
     }
 
-    async fetchOHLCV (symbol, timeframe = '1m', since = undefined, limit = undefined, params = {}) {
-        await this.loadMarkets ();
-        let market = this.market (symbol);
+    async fetchOHLCV(symbol, timeframe = '1m', since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets();
+        let market = this.market(symbol);
         let granularity = this.timeframes[timeframe];
         let request = {
             'id': market['id'],
             'granularity': granularity,
         };
         if (since) {
-            request['start'] = this.iso8601 (since);
+            request['start'] = this.iso8601(since);
             if (!limit)
                 limit = 200; // max = 200
-            request['end'] = this.iso8601 (limit * granularity * 1000 + since);
+            request['end'] = this.iso8601(limit * granularity * 1000 + since);
         }
-        let response = await this.publicGetProductsIdCandles (this.extend (request, params));
-        return this.parseOHLCVs (response, market, timeframe, since, limit);
+        let response = await this.publicGetProductsIdCandles(this.extend(request, params));
+        return this.parseOHLCVs(response, market, timeframe, since, limit);
     }
 
-    async fetchTime () {
-        let response = this.publicGetTime ();
-        return this.parse8601 (response['iso']);
+    async fetchTime() {
+        let response = this.publicGetTime();
+        return this.parse8601(response['iso']);
     }
 
-    parseOrderStatus (status) {
+    parseOrderStatus(status) {
         let statuses = {
             'pending': 'open',
             'active': 'open',
@@ -334,29 +367,29 @@ module.exports = class gdax extends Exchange {
             'done': 'closed',
             'canceled': 'canceled',
         };
-        return this.safeString (statuses, status, status);
+        return this.safeString(statuses, status, status);
     }
 
-    parseOrder (order, market = undefined) {
-        let timestamp = this.parse8601 (order['created_at']);
+    parseOrder(order, market = undefined) {
+        let timestamp = this.parse8601(order['created_at']);
         let symbol = undefined;
         if (!market) {
             if (order['product_id'] in this.markets_by_id)
                 market = this.markets_by_id[order['product_id']];
         }
-        let status = this.parseOrderStatus (order['status']);
-        let price = this.safeFloat (order, 'price');
-        let amount = this.safeFloat (order, 'size');
-        let filled = this.safeFloat (order, 'filled_size');
+        let status = this.parseOrderStatus(order['status']);
+        let price = this.safeFloat(order, 'price');
+        let amount = this.safeFloat(order, 'size');
+        let filled = this.safeFloat(order, 'filled_size');
         let remaining = amount - filled;
-        let cost = this.safeFloat (order, 'executed_value');
+        let cost = this.safeFloat(order, 'executed_value');
         if (market)
             symbol = market['symbol'];
         return {
             'id': order['id'],
             'info': order,
             'timestamp': timestamp,
-            'datetime': this.iso8601 (timestamp),
+            'datetime': this.iso8601(timestamp),
             'status': status,
             'symbol': symbol,
             'type': order['type'],
@@ -370,84 +403,86 @@ module.exports = class gdax extends Exchange {
         };
     }
 
-    async fetchOrder (id, symbol = undefined, params = {}) {
-        await this.loadMarkets ();
-        let response = await this.privateGetOrdersId (this.extend ({
+    async fetchOrder(id, symbol = undefined, params = {}) {
+        await this.loadMarkets();
+        let response = await this.privateGetOrdersId(this.extend({
             'id': id,
         }, params));
-        return this.parseOrder (response);
+        return this.parseOrder(response);
     }
 
-    async fetchOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        await this.loadMarkets ();
+    async fetchOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets();
         let request = {
             'status': 'all',
         };
         let market = undefined;
         if (symbol) {
-            market = this.market (symbol);
+            market = this.market(symbol);
             request['product_id'] = market['id'];
         }
-        let response = await this.privateGetOrders (this.extend (request, params));
-        return this.parseOrders (response, market, since, limit);
+        let response = await this.privateGetOrders(this.extend(request, params));
+        return this.parseOrders(response, market, since, limit);
     }
 
-    async fetchOpenOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        await this.loadMarkets ();
+    async fetchOpenOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets();
         let request = {};
         let market = undefined;
         if (symbol) {
-            market = this.market (symbol);
+            market = this.market(symbol);
             request['product_id'] = market['id'];
         }
-        let response = await this.privateGetOrders (this.extend (request, params));
-        return this.parseOrders (response, market, since, limit);
+        let response = await this.privateGetOrders(this.extend(request, params));
+        return this.parseOrders(response, market, since, limit);
     }
 
-    async fetchClosedOrders (symbol = undefined, since = undefined, limit = undefined, params = {}) {
-        await this.loadMarkets ();
+    async fetchClosedOrders(symbol = undefined, since = undefined, limit = undefined, params = {}) {
+        await this.loadMarkets();
         let request = {
             'status': 'done',
         };
         let market = undefined;
         if (symbol) {
-            market = this.market (symbol);
+            market = this.market(symbol);
             request['product_id'] = market['id'];
         }
-        let response = await this.privateGetOrders (this.extend (request, params));
-        return this.parseOrders (response, market, since, limit);
+        let response = await this.privateGetOrders(this.extend(request, params));
+        return this.parseOrders(response, market, since, limit);
     }
 
-    async createOrder (market, type, side, amount, price = undefined, params = {}) {
-        await this.loadMarkets ();
+    async createOrder(market, type, side, amount, price = undefined, params = {}) {
+        await this.loadMarkets();
         // let oid = this.nonce ().toString ();
         let order = {
-            'product_id': this.marketId (market),
+            'product_id': this.marketId(market),
             'side': side,
             'size': amount,
             'type': type,
         };
         if (type == 'limit')
             order['price'] = price;
-        let response = await this.privatePostOrders (this.extend (order, params));
+        let response = await this.privatePostOrders(this.extend(order, params));
         return {
             'info': response,
             'id': response['id'],
         };
     }
 
-    async cancelOrder (id, symbol = undefined, params = {}) {
-        await this.loadMarkets ();
-        return await this.privateDeleteOrdersId ({ 'id': id });
+    async cancelOrder(id, symbol = undefined, params = {}) {
+        await this.loadMarkets();
+        return await this.privateDeleteOrdersId({
+            'id': id
+        });
     }
 
-    async getPaymentMethods () {
-        let response = await this.privateGetPaymentMethods ();
+    async getPaymentMethods() {
+        let response = await this.privateGetPaymentMethods();
         return response;
     }
 
-    async deposit (currency, amount, address, params = {}) {
-        await this.loadMarkets ();
+    async deposit(currency, amount, address, params = {}) {
+        await this.loadMarkets();
         let request = {
             'currency': currency,
             'amount': amount,
@@ -463,19 +498,19 @@ module.exports = class gdax extends Exchange {
             // deposit methodotherwise we did not receive a supported deposit location
             // relevant docs link for the Googlers
             // https://docs.gdax.com/#deposits
-            throw new NotSupported (this.id + ' deposit() requires one of `coinbase_account_id` or `payment_method_id` extra params');
+            throw new NotSupported(this.id + ' deposit() requires one of `coinbase_account_id` or `payment_method_id` extra params');
         }
-        let response = await this[method] (this.extend (request, params));
+        let response = await this[method](this.extend(request, params));
         if (!response)
-            throw new ExchangeError (this.id + ' deposit() error: ' + this.json (response));
+            throw new ExchangeError(this.id + ' deposit() error: ' + this.json(response));
         return {
             'info': response,
             'id': response['id'],
         };
     }
 
-    async withdraw (currency, amount, address, params = {}) {
-        await this.loadMarkets ();
+    async withdraw(currency, amount, address, params = {}) {
+        await this.loadMarkets();
         let request = {
             'currency': currency,
             'amount': amount,
@@ -489,70 +524,75 @@ module.exports = class gdax extends Exchange {
             method += 'Crypto';
             request['crypto_address'] = address;
         }
-        let response = await this[method] (this.extend (request, params));
+        let response = await this[method](this.extend(request, params));
         if (!response)
-            throw new ExchangeError (this.id + ' withdraw() error: ' + this.json (response));
+            throw new ExchangeError(this.id + ' withdraw() error: ' + this.json(response));
         return {
             'info': response,
             'id': response['id'],
         };
     }
 
-    sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
-        let request = '/' + this.implodeParams (path, params);
-        let query = this.omit (params, this.extractParams (path));
+    sign(path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
+        let request = '/' + this.implodeParams(path, params);
+        let query = this.omit(params, this.extractParams(path));
         if (method == 'GET') {
-            if (Object.keys (query).length)
-                request += '?' + this.urlencode (query);
+            if (Object.keys(query).length)
+                request += '?' + this.urlencode(query);
         }
         let url = this.urls['api'] + request;
         if (api == 'private') {
-            this.checkRequiredCredentials ();
-            let nonce = this.nonce ().toString ();
+            this.checkRequiredCredentials();
+            let nonce = this.nonce().toString();
             let payload = '';
             if (method != 'GET') {
-                if (Object.keys (query).length) {
-                    body = this.json (query);
+                if (Object.keys(query).length) {
+                    body = this.json(query);
                     payload = body;
                 }
             }
             // let payload = (body) ? body : '';
             let what = nonce + method + request + payload;
-            let secret = this.base64ToBinary (this.secret);
-            let signature = this.hmac (this.encode (what), secret, 'sha256', 'base64');
+            let secret = this.base64ToBinary(this.secret);
+            let signature = this.hmac(this.encode(what), secret, 'sha256', 'base64');
             headers = {
                 'CB-ACCESS-KEY': this.apiKey,
-                'CB-ACCESS-SIGN': this.decode (signature),
+                'CB-ACCESS-SIGN': this.decode(signature),
                 'CB-ACCESS-TIMESTAMP': nonce,
                 'CB-ACCESS-PASSPHRASE': this.password,
                 'Content-Type': 'application/json',
             };
         }
-        return { 'url': url, 'method': method, 'body': body, 'headers': headers };
+        return {
+            'url': url,
+            'method': method,
+            'body': body,
+            'headers': headers
+        };
     }
 
-    handleErrors (code, reason, url, method, headers, body) {
+    handleErrors(code, reason, url, method, headers, body) {
         if (code == 400) {
             if (body[0] == "{") {
-                let response = JSON.parse (body);
+                let response = JSON.parse(body);
                 let message = response['message'];
-                if (message.indexOf ('price too small') >= 0) {
-                    throw new InvalidOrder (this.id + ' ' + message);
-                } else if (message.indexOf ('price too precise') >= 0) {
-                    throw new InvalidOrder (this.id + ' ' + message);
+                if (message.indexOf('price too small') >= 0) {
+                    throw new InvalidOrder(this.id + ' ' + message);
+                } else if (message.indexOf('price too precise') >= 0) {
+                    throw new InvalidOrder(this.id + ' ' + message);
                 } else if (message == 'Invalid API Key') {
-                    throw new AuthenticationError (this.id + ' ' + message);
+                    throw new AuthenticationError(this.id + ' ' + message);
                 }
-                throw new ExchangeError (this.id + ' ' + this.json (response));
+                throw new ExchangeError(this.id + ' ' + this.json(response));
             }
-            throw new ExchangeError (this.id + ' ' + body);
+            throw new ExchangeError(this.id + ' ' + body);
         }
     }
 
-    async request (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
-        let response = await this.fetch2 (path, api, method, params, headers, body);
+    async request(path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
+        let response = await this.fetch2(path, api, method, params, headers, body);
         if ('message' in response) {
-            throw new ExchangeError (this.id + ' ' + this.json (response));
+            throw new ExchangeError(this.id + ' ' + this.json(response));
         }
         return response;
     }
